@@ -1,0 +1,38 @@
+# Executables
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build directories
+build/
+out/
+bin/
+obj/
+vcpkg/
+vcpkg_installed/
+
+# IDEs
+.vscode/
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.user
+*.user
+*.suo
+
+# Cache and temporary
+.cache/
+*.log
+*.tmp
+*.temp
+tests/Release/
+
+# User specifically requested excludes (even if placed locally or in parent)
+*.pdf
+code.txt
+spec.txt
+
+# Models and specific config
+models/
+config.json

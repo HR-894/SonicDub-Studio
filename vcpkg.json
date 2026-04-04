@@ -1,0 +1,14 @@
+{
+    "name": "video-dubber",
+    "version": "1.0.0",
+    "dependencies": [
+        "qt6-base",
+        "qt6-widgets",
+        "curl",
+        "nlohmann-json",
+        "spdlog",
+        "boost-beast",
+        "boost-asio",
+        "gtest"
+    ]
+}

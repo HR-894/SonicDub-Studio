@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "VideoDubber",
+  "version": "1.0.0",
+  "description": "Dub YouTube videos into Hindi using VideoDubber desktop app",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "http://localhost:7070/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": { "48": "icon48.png" }
+  }
+}

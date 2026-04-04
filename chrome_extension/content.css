@@ -1,0 +1,66 @@
+/*
+ * ╔══════════════════════════════════════════════════════════════════════════════╗
+ * ║  content.css — Chrome Extension YouTube Page Styles                       ║
+ * ╚══════════════════════════════════════════════════════════════════════════════╝
+ *
+ * Injected into YouTube pages alongside content.js.
+ * Styles the "Dub This" button and the progress overlay popup.
+ * Uses Catppuccin Mocha color palette for dark-mode native feel.
+ */
+
+/* ─── "Dub This" Button on YouTube ─────────────────────────────────────── */
+
+#vd-dub-btn {
+    background: #89b4fa !important;
+    color: #1e1e2e !important;
+    border: none !important;
+    padding: 8px 16px !important;
+    border-radius: 20px !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
+    font-size: 14px !important;
+    margin-left: 8px !important;
+    transition: background 0.2s ease, transform 0.1s ease !important;
+    font-family: 'Segoe UI', system-ui, sans-serif !important;
+}
+
+#vd-dub-btn:hover {
+    background: #74c7ec !important;
+    transform: scale(1.02);
+}
+
+#vd-dub-btn:active {
+    transform: scale(0.98);
+}
+
+/* ─── Overlay Notification Popup ───────────────────────────────────────── */
+
+#vd-overlay {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 99999;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border: 1px solid #89b4fa;
+    border-radius: 12px;
+    padding: 16px 20px;
+    min-width: 280px;
+    max-width: 360px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    animation: vd-slide-in 0.3s ease-out;
+}
+
+/* ─── Slide-In Animation ───────────────────────────────────────────────── */
+
+@keyframes vd-slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
