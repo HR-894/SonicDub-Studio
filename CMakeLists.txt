@@ -24,7 +24,7 @@
 
 cmake_minimum_required(VERSION 3.25)
 
-project(VideoDubber
+project(SonicDubStudio
     VERSION     1.0.0
     LANGUAGES   CXX
     DESCRIPTION "Industry-grade C++ automated video dubbing application"
@@ -135,17 +135,17 @@ file(GLOB_RECURSE SOURCES
     "src/main.cpp"
 )
 
-qt6_add_executable(VideoDubber ${SOURCES})
+qt6_add_executable(SonicDubStudio ${SOURCES})
 
 # ─── Include Directories ────────────────────────────────────────────────────
-target_include_directories(VideoDubber PRIVATE
+target_include_directories(SonicDubStudio PRIVATE
     ${CMAKE_SOURCE_DIR}/src        # Project headers  (e.g. #include "core/segment.h")
     ${AVCODEC_INCLUDE_DIR}         # FFmpeg C headers
     ${CURL_INCLUDE_DIRS}           # libcurl headers
 )
 
 # ─── Link Libraries ─────────────────────────────────────────────────────────
-target_link_libraries(VideoDubber PRIVATE
+target_link_libraries(SonicDubStudio PRIVATE
     # --- GUI ---
     Qt6::Core Qt6::Widgets Qt6::Network
 
@@ -171,7 +171,7 @@ target_link_libraries(VideoDubber PRIVATE
 )
 
 # ─── Compiler Definitions ───────────────────────────────────────────────────
-target_compile_definitions(VideoDubber PRIVATE
+target_compile_definitions(SonicDubStudio PRIVATE
     QT_NO_KEYWORDS                  # Avoid Qt macro conflicts (signals/slots → Q_SIGNALS/Q_SLOTS)
     NOMINMAX                        # Prevent Windows.h min/max macro pollution
     WIN32_LEAN_AND_MEAN             # Exclude rarely-used Windows headers
@@ -191,5 +191,5 @@ endif()
 # ═══════════════════════════════════════════════════════════════════════════════
 if(WIN32)
     # WIN32_EXECUTABLE hides the console window in Release builds
-    set_target_properties(VideoDubber PROPERTIES WIN32_EXECUTABLE TRUE)
+    set_target_properties(SonicDubStudio PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()

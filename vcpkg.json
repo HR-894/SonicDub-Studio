@@ -1,5 +1,5 @@
 {
-    "name": "video-dubber",
+    "name": "sonicdub-studio",
     "version": "1.0.0",
     "dependencies": [
         "qt6-base",

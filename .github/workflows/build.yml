@@ -1,0 +1,48 @@
+name: SonicDub Studio CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  release:
+    types: [published]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Cache vcpkg dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.VCPKG_INSTALLATION_ROOT }}\installed
+          build\vcpkg_installed
+          ~\AppData\Local\vcpkg\archives
+        key: vcpkg-win-qt6-${{ hashFiles('**/vcpkg.json') }}
+        restore-keys: |
+          vcpkg-win-qt6-
+
+    - name: Configure CMake
+      run: cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build Application
+      run: cmake --build build --config Release
+      
+    - name: Run Unit Tests
+      run: .\build\tests\Release\vd_tests.exe
+
+    - name: Build Windows Installer (NSIS)
+      if: github.event_name == 'release'
+      run: makensis installer\installer.nsi
+
+    - name: Upload Installer to GitHub Release
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          SonicDubStudio-*-Setup.exe

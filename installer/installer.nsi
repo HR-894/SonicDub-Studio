@@ -1,16 +1,16 @@
 ; VideoDubber NSIS Installer Script
 ; Requires: NSIS 3.x, install from https://nsis.sourceforge.io
 
-!define APP_NAME       "VideoDubber"
+!define APP_NAME       "SonicDubStudio"
 !define APP_VERSION    "1.0.0"
-!define APP_PUBLISHER  "VideoDubber"
-!define APP_EXE        "VideoDubber.exe"
+!define APP_PUBLISHER  "SonicDub Studio"
+!define APP_EXE        "SonicDubStudio.exe"
 !define APP_ICON       "resources\app.ico"
 !define INSTALL_DIR    "$PROGRAMFILES64\${APP_NAME}"
 !define REGKEY         "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 
 Name "${APP_NAME} ${APP_VERSION}"
-OutFile "VideoDubber-${APP_VERSION}-Setup.exe"
+OutFile "SonicDubStudio-${APP_VERSION}-Setup.exe"
 InstallDir "${INSTALL_DIR}"
 InstallDirRegKey HKLM "${REGKEY}" "InstallLocation"
 RequestExecutionLevel admin
