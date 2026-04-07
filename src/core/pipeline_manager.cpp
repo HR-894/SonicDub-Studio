@@ -93,6 +93,8 @@
 #include "utils/file_utils.h"
 
 #include <QProcess>
+#include <QTcpServer>
+#include <QThread>
 
 #include <random>
 #include <chrono>
@@ -134,12 +136,47 @@ PipelineManager::PipelineManager() {
     state_dir_ = cfg.get_temp_dir() + "/job_states";
     std::filesystem::create_directories(state_dir_);
 
-    // Boot Python AI Bridge
+    // ── Dynamic Port Discovery ──────────────────────────────────────────
+    // Bind to port 0 to let the OS assign a guaranteed-free ephemeral port.
+    // This prevents collisions with Django, React, or any other dev server.
+    {
+        QTcpServer probe;
+        probe.listen(QHostAddress::LocalHost, 0);
+        bridge_port_ = probe.serverPort();
+        probe.close();  // Release immediately so Python can bind to it
+    }
+
+    // ── Boot AI Bridge ──────────────────────────────────────────────────
+    // Prefer the PyInstaller-bundled exe so end-users don't need Python.
+    // Fall back to `python server.py` for developers.
     ai_bridge_process_ = std::make_unique<QProcess>();
-    ai_bridge_process_->setProgram("python");
-    ai_bridge_process_->setArguments({"ai_engine/server.py"});
+    QString exe_path = "ai_engine/ai_bridge_server.exe";
+    if (std::filesystem::exists(exe_path.toStdString())) {
+        ai_bridge_process_->setProgram(exe_path);
+        ai_bridge_process_->setArguments({"--port", QString::number(bridge_port_)});
+    } else {
+        ai_bridge_process_->setProgram("python");
+        ai_bridge_process_->setArguments({"ai_engine/server.py", "--port", QString::number(bridge_port_)});
+    }
     ai_bridge_process_->start();
-    VD_LOG_INFO("PipelineManager: Booted Python AI Bridge at 127.0.0.1:8000");
+
+    // Wait for the server to become ready (up to 15 seconds)
+    HttpClient probe_http;
+    probe_http.set_timeout(2);
+    bool bridge_ready = false;
+    for (int i = 0; i < 30; ++i) {
+        QThread::msleep(500);
+        try {
+            auto r = probe_http.get("http://127.0.0.1:" + std::to_string(bridge_port_) + "/docs");
+            if (r.status_code == 200) { bridge_ready = true; break; }
+        } catch (...) { /* server not ready yet */ }
+    }
+    if (bridge_ready) {
+        VD_LOG_INFO("PipelineManager: AI Bridge ready on port {}", bridge_port_);
+    } else {
+        VD_LOG_WARN("PipelineManager: AI Bridge did not start in time on port {}. "
+                    "Diarization/Voice Cloning will be unavailable.", bridge_port_);
+    }
 }
 
 PipelineManager::~PipelineManager() {
@@ -231,12 +268,12 @@ static std::unique_ptr<ITranslator> make_translator(const std::string& backend) 
  * Creates a TTS engine based on config string.
  * Supported: "google", "gemini", "elevenlabs", "edge"
  */
-static std::unique_ptr<ITTSEngine> make_tts(const std::string& backend) {
+static std::unique_ptr<ITTSEngine> make_tts(const std::string& backend, uint16_t bridge_port = 0) {
     if (backend == "google")     return std::make_unique<GoogleCloudTTS>();
     if (backend == "gemini")     return std::make_unique<GeminiTTS>();
     if (backend == "elevenlabs") return std::make_unique<ElevenLabsTTS>();
     if (backend == "edge")       return std::make_unique<EdgeTTS>();
-    if (backend == "xttsv2_local") return std::make_unique<XTTSBackend>();
+    if (backend == "xttsv2_local") return std::make_unique<XTTSBackend>(bridge_port);
     throw ConfigException("Unknown TTS backend: " + backend);
 }
 
@@ -284,7 +321,7 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
         emit_progress(ctx->job_id, "diarization", 20);
         VD_LOG_INFO("[{}] ▶ Stage 2b: Diarization", ctx->job_id);
         
-        Diarizer diarizer;
+        Diarizer diarizer(bridge_port_);
         diarizer.diarize(audio_path, ctx->segments);
         if (ctx->cancelled) return;
 
@@ -368,7 +405,11 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
         emit_progress(ctx->job_id, "tts", 50);
         VD_LOG_INFO("[{}] ▶ Stage 4: TTS ({})", ctx->job_id, ctx->config.tts_backend);
 
-        auto tts            = make_tts(ctx->config.tts_backend);
+        auto tts            = make_tts(ctx->config.tts_backend, bridge_port_);
+        // Tell XTTS backend where to write output so files land in temp_dir
+        if (auto* xtts = dynamic_cast<XTTSBackend*>(tts.get())) {
+            xtts->set_output_dir(ctx->temp_dir);
+        }
         int  retry_count    = cfg.get_tts_retry_count();
         int  retry_delay_ms = cfg.get_tts_retry_delay_ms();
         std::atomic<size_t> tts_count{0};

@@ -48,7 +48,8 @@ int main(int argc, char* argv[]) {
     app.setOrganizationName("VideoDubber");
 
     // ── Step 2: Config Directory ─────────────────────────────────────────
-    std::string appdata = std::getenv("APPDATA") ? std::getenv("APPDATA") : ".";
+    const char* appdata_env = std::getenv("APPDATA");
+    std::string appdata = appdata_env ? appdata_env : ".";
     std::filesystem::path config_dir  = appdata + "/VideoDubber";
     std::filesystem::path config_path = config_dir / "config.json";
 

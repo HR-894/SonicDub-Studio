@@ -26,7 +26,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     }
 
     tts_backend_ = new QComboBox;
-    tts_backend_->addItems({"gemini", "google", "elevenlabs", "edge"});
+    tts_backend_->addItems({"gemini", "google", "elevenlabs", "edge", "xttsv2_local"});
 
     trans_backend_ = new QComboBox;
     trans_backend_->addItems({"google", "deepl", "libretranslate"});

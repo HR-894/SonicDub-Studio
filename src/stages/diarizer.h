@@ -2,12 +2,16 @@
 
 #include "core/segment.h"
 #include <string>
+#include <cstdint>
 
 namespace vd {
 
 class Diarizer {
 public:
-    Diarizer();
+    /**
+     * @param bridge_port The dynamically assigned AI bridge server port.
+     */
+    explicit Diarizer(uint16_t bridge_port);
     ~Diarizer() = default;
 
     /**
@@ -16,6 +20,9 @@ public:
      * based on time overlaps.
      */
     void diarize(const std::string& audio_path, SegmentList& segments);
+
+private:
+    uint16_t bridge_port_;
 };
 
 } // namespace vd

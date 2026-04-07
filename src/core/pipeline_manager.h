@@ -160,6 +160,7 @@ private:
     std::string generate_job_id() const;       ///< Random 64-bit hex string
     std::filesystem::path state_dir_;          ///< For future state persistence
     std::unique_ptr<QProcess> ai_bridge_process_; ///< Manages server.py lifecycle
+    uint16_t bridge_port_{0};                  ///< Dynamically assigned AI bridge port
 };
 
 } // namespace vd
