@@ -20,7 +20,8 @@ std::vector<uint8_t> XTTSBackend::synthesize(const std::string& text,
     payload["text"] = text;
     payload["language"] = lang;
     payload["reference_audio_path"] = voice_id;
-    payload["output_dir"] = output_dir_;  // Tell Python where to save
+    payload["output_dir"] = output_dir_;
+    payload["segment_id"] = segment_id_;  // Unique ID prevents hash collisions
 
     std::map<std::string, std::string> headers = {
         {"Content-Type", "application/json"}

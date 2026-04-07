@@ -93,8 +93,8 @@
 #include "utils/file_utils.h"
 
 #include <QProcess>
-#include <QTcpServer>
 #include <QThread>
+#include <QCoreApplication>
 
 #include <random>
 #include <chrono>
@@ -136,46 +136,67 @@ PipelineManager::PipelineManager() {
     state_dir_ = cfg.get_temp_dir() + "/job_states";
     std::filesystem::create_directories(state_dir_);
 
-    // ── Dynamic Port Discovery ──────────────────────────────────────────
-    // Bind to port 0 to let the OS assign a guaranteed-free ephemeral port.
-    // This prevents collisions with Django, React, or any other dev server.
-    {
-        QTcpServer probe;
-        probe.listen(QHostAddress::LocalHost, 0);
-        bridge_port_ = probe.serverPort();
-        probe.close();  // Release immediately so Python can bind to it
-    }
-
     // ── Boot AI Bridge ──────────────────────────────────────────────────
-    // Prefer the PyInstaller-bundled exe so end-users don't need Python.
-    // Fall back to `python server.py` for developers.
+    // STRATEGY: Tell Python to bind to port 0 (OS picks a free port).
+    // Python writes the actual port to a temp file. C++ reads it.
+    // This eliminates the TOCTOU race of probe-then-release-then-bind.
     ai_bridge_process_ = std::make_unique<QProcess>();
+
+    // Pipe Python stderr → our log so crash tracebacks are visible
+    ai_bridge_process_->setProcessChannelMode(QProcess::MergedChannels);
+    QObject::connect(ai_bridge_process_.get(), &QProcess::readyReadStandardOutput,
+        [this]() {
+            QByteArray data = ai_bridge_process_->readAllStandardOutput();
+            VD_LOG_INFO("[AI Bridge] {}", data.toStdString());
+        });
+
+    // Port file: Python writes the port it bound to here
+    std::string port_file = cfg.get_temp_dir() + "/bridge_port.txt";
+    // Parent PID: Python watchdog kills itself if we crash
+    auto parent_pid = QString::number(QCoreApplication::applicationPid());
+
+    // Prefer PyInstaller bundle; fall back to raw Python for developers
     QString exe_path = "ai_engine/ai_bridge_server.exe";
     if (std::filesystem::exists(exe_path.toStdString())) {
         ai_bridge_process_->setProgram(exe_path);
-        ai_bridge_process_->setArguments({"--port", QString::number(bridge_port_)});
+        ai_bridge_process_->setArguments({
+            "--port", "0",
+            "--parent-pid", parent_pid,
+            "--port-file", QString::fromStdString(port_file)
+        });
     } else {
         ai_bridge_process_->setProgram("python");
-        ai_bridge_process_->setArguments({"ai_engine/server.py", "--port", QString::number(bridge_port_)});
+        ai_bridge_process_->setArguments({
+            "ai_engine/server.py",
+            "--port", "0",
+            "--parent-pid", parent_pid,
+            "--port-file", QString::fromStdString(port_file)
+        });
     }
     ai_bridge_process_->start();
 
-    // Wait for the server to become ready (up to 15 seconds)
-    HttpClient probe_http;
-    probe_http.set_timeout(2);
+    // Wait for Python to write the port file (up to 30 seconds)
     bool bridge_ready = false;
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 60; ++i) {
         QThread::msleep(500);
-        try {
-            auto r = probe_http.get("http://127.0.0.1:" + std::to_string(bridge_port_) + "/docs");
-            if (r.status_code == 200) { bridge_ready = true; break; }
-        } catch (...) { /* server not ready yet */ }
+        if (std::filesystem::exists(port_file)) {
+            std::ifstream pf(port_file);
+            int port_val = 0;
+            if (pf >> port_val && port_val > 0) {
+                bridge_port_ = static_cast<uint16_t>(port_val);
+                bridge_ready = true;
+                break;
+            }
+        }
     }
+    // Clean up the temp port file
+    std::filesystem::remove(port_file);
+
     if (bridge_ready) {
         VD_LOG_INFO("PipelineManager: AI Bridge ready on port {}", bridge_port_);
     } else {
-        VD_LOG_WARN("PipelineManager: AI Bridge did not start in time on port {}. "
-                    "Diarization/Voice Cloning will be unavailable.", bridge_port_);
+        VD_LOG_WARN("PipelineManager: AI Bridge did not start in time. "
+                    "Diarization/Voice Cloning will be unavailable.");
     }
 }
 
@@ -426,6 +447,11 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
                 [&seg, &tts, &tts_count, retry_count, retry_delay_ms, voice_id, ref_path, ctx, this]() {
                 // FIX #7: Skip this task entirely if already cancelled
                 if (ctx->cancelled) return;
+
+                // Set segment_id on XTTS so Python generates a unique filename
+                if (auto* xtts = dynamic_cast<XTTSBackend*>(tts.get())) {
+                    xtts->set_segment_id(seg.id);
+                }
 
                 for (int attempt = 0; attempt < retry_count; ++attempt) {
                     try {

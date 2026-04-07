@@ -3,10 +3,12 @@
 #include "core/config_manager.h"
 #include "core/error_handler.h"
 #include "utils/file_utils.h"
-#include <cstdlib>
-#include <format>
 #include <fstream>
 #include <filesystem>
+
+#include <QProcess>
+#include <QStringList>
+#include <QString>
 
 namespace vd {
 
@@ -24,21 +26,33 @@ std::vector<uint8_t> EdgeTTS::synthesize(const std::string& text,
     auto tmp_wav = FileUtils::get_temp_path(
         ConfigManager::instance().get_temp_dir(), ".wav");
 
-    // edge-tts is a Python package, invoke via subprocess
-    // Install: pip install edge-tts
+    // edge-tts is a Python package, invoke via QProcess (NOT std::system)
+    // Using QStringList for argument isolation prevents command injection:
+    // e.g., text like "Hello && format C:" is passed as a single argument,
+    // never interpreted by the shell.
     auto use_voice = voice_id.empty() ? voice_ : voice_id;
-    std::string cmd = std::format(
-        "edge-tts --voice \"{}\" --text \"{}\" --write-media \"{}\" 2>nul",
-        use_voice, text, tmp_mp3);
 
-    int rc = std::system(cmd.c_str());
-    if (rc != 0) throw TTSException("edge-tts subprocess failed");
+    QStringList tts_args;
+    tts_args << "--voice" << QString::fromStdString(use_voice)
+             << "--text"  << QString::fromStdString(text)
+             << "--write-media" << QString::fromStdString(tmp_mp3);
 
-    // Convert MP3 -> WAV
-    std::string conv = std::format(
-        "ffmpeg -y -i \"{}\" -ar 16000 -ac 1 \"{}\" -loglevel quiet",
-        tmp_mp3, tmp_wav);
-    std::system(conv.c_str());
+    int rc = QProcess::execute("edge-tts", tts_args);
+    if (rc != 0) throw TTSException("edge-tts subprocess failed (exit code: " + std::to_string(rc) + ")");
+
+    // Convert MP3 -> WAV using QProcess (also safe from injection)
+    QStringList conv_args;
+    conv_args << "-y"
+              << "-i" << QString::fromStdString(tmp_mp3)
+              << "-ar" << "16000"
+              << "-ac" << "1"
+              << "-loglevel" << "quiet"
+              << QString::fromStdString(tmp_wav);
+
+    int conv_rc = QProcess::execute("ffmpeg", conv_args);
+    if (conv_rc != 0) {
+        VD_LOG_WARN("EdgeTTS: ffmpeg conversion failed (exit code: {})", conv_rc);
+    }
 
     auto data = FileUtils::read_file(tmp_wav);
 

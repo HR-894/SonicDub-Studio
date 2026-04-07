@@ -21,9 +21,13 @@ public:
     /// Set the job temp directory so generated files land inside it for automatic cleanup.
     void set_output_dir(const std::string& dir) { output_dir_ = dir; }
 
+    /// Set the current segment ID for unique filename generation.
+    void set_segment_id(uint32_t id) { segment_id_ = id; }
+
 private:
     uint16_t bridge_port_;
     std::string output_dir_;
+    uint32_t segment_id_{0};
 };
 
 } // namespace vd
