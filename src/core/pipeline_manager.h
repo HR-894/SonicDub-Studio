@@ -44,6 +44,7 @@
 
 #include "core/segment.h"
 #include "core/thread_pool.h"
+#include <QProcess>
 
 #include <string>
 #include <vector>
@@ -158,6 +159,7 @@ private:
 
     std::string generate_job_id() const;       ///< Random 64-bit hex string
     std::filesystem::path state_dir_;          ///< For future state persistence
+    std::unique_ptr<QProcess> ai_bridge_process_; ///< Manages server.py lifecycle
 };
 
 } // namespace vd

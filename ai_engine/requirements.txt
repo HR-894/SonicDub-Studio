@@ -1,0 +1,13 @@
+fastapi==0.109.2
+uvicorn==0.27.1
+pydantic==2.6.1
+ffmpeg-python==0.2.0
+python-multipart==0.0.9
+
+# For Diarization (PyAnnote/WhisperX)
+pyannote.audio==3.1.1
+torchaudio==2.2.0
+torch==2.2.0
+
+# For Zero-Shot Voice Cloning (Coqui XTTSv2)
+TTS==0.22.0

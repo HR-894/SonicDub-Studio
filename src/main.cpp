@@ -32,6 +32,7 @@
 #include <QApplication>
 #include <QDir>
 #include <filesystem>
+#include <curl/curl.h>
 
 #include "core/config_manager.h"
 #include "core/logger.h"
@@ -41,6 +42,7 @@ int main(int argc, char* argv[]) {
 
     // ── Step 1: Qt Application ───────────────────────────────────────────
     QApplication app(argc, argv);
+    curl_global_init(CURL_GLOBAL_ALL);
     app.setApplicationName("VideoDubber");
     app.setApplicationVersion("1.0.0");
     app.setOrganizationName("VideoDubber");
@@ -52,9 +54,19 @@ int main(int argc, char* argv[]) {
 
     // ── Step 3: Create Directory Structure ────────────────────────────────
     std::filesystem::create_directories(config_dir);
-    std::filesystem::create_directories(config_dir / "temp");
+    std::filesystem::path temp_dir = config_dir / "temp";
+    std::filesystem::create_directories(temp_dir);
     std::filesystem::create_directories(config_dir / "logs");
     std::filesystem::create_directories(config_dir / "models");
+
+    // Clear orphaned temp folders left from crashes
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(temp_dir)) {
+            std::filesystem::remove_all(entry.path());
+        }
+    } catch (...) {
+        // Ignore permission or locking errors on startup
+    }
 
     // ── Step 4: Copy Default Config (first run only) ─────────────────────
     if (!std::filesystem::exists(config_path)) {
@@ -79,5 +91,10 @@ int main(int argc, char* argv[]) {
     vd::MainWindow window;
     window.show();
 
-    return app.exec();
+    int result = app.exec();
+
+    // ── Cleanup ────────────────────────────────────────────────────────
+    curl_global_cleanup();
+
+    return result;
 }

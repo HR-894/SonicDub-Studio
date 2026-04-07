@@ -73,6 +73,8 @@
 // ── Pipeline Stage Includes ──────────────────────────────────────────────────
 #include "stages/audio_extractor.h"
 #include "stages/transcriber.h"
+#include "stages/diarizer.h"
+#include "stages/voice_profiler.h"
 #include "stages/audio_syncer.h"
 #include "stages/audio_mixer.h"
 #include "stages/video_muxer.h"
@@ -85,9 +87,12 @@
 #include "backends/tts/gemini_tts.h"
 #include "backends/tts/elevenlabs_tts.h"
 #include "backends/tts/edge_tts.h"
+#include "backends/tts/xtts_engine.h"
 
 // ── Standard Library ─────────────────────────────────────────────────────────
 #include "utils/file_utils.h"
+
+#include <QProcess>
 
 #include <random>
 #include <chrono>
@@ -128,12 +133,23 @@ PipelineManager::PipelineManager() {
     // State persistence directory
     state_dir_ = cfg.get_temp_dir() + "/job_states";
     std::filesystem::create_directories(state_dir_);
+
+    // Boot Python AI Bridge
+    ai_bridge_process_ = std::make_unique<QProcess>();
+    ai_bridge_process_->setProgram("python");
+    ai_bridge_process_->setArguments({"ai_engine/server.py"});
+    ai_bridge_process_->start();
+    VD_LOG_INFO("PipelineManager: Booted Python AI Bridge at 127.0.0.1:8000");
 }
 
 PipelineManager::~PipelineManager() {
     main_pool_->shutdown();
     tts_pool_->shutdown();
     translate_pool_->shutdown();
+    if (ai_bridge_process_ && ai_bridge_process_->state() == QProcess::Running) {
+        ai_bridge_process_->terminate();
+        ai_bridge_process_->waitForFinished(3000);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -220,6 +236,7 @@ static std::unique_ptr<ITTSEngine> make_tts(const std::string& backend) {
     if (backend == "gemini")     return std::make_unique<GeminiTTS>();
     if (backend == "elevenlabs") return std::make_unique<ElevenLabsTTS>();
     if (backend == "edge")       return std::make_unique<EdgeTTS>();
+    if (backend == "xttsv2_local") return std::make_unique<XTTSBackend>();
     throw ConfigException("Unknown TTS backend: " + backend);
 }
 
@@ -257,6 +274,23 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
         Transcriber transcriber;
         ctx->segments = transcriber.transcribe(audio_path, ctx->config.source_language);
         VD_LOG_INFO("[{}]   Got {} segments", ctx->job_id, ctx->segments.size());
+        if (ctx->cancelled) return;
+
+        // ─────────────────────────────────────────────────────────────────
+        // STAGE 2.5: Diarization & Voice Profiling [20%]
+        // Input:  16kHz WAV + SegmentList
+        // Output: SegmentList with speaker_id, and speaker_refs Map
+        // ─────────────────────────────────────────────────────────────────
+        emit_progress(ctx->job_id, "diarization", 20);
+        VD_LOG_INFO("[{}] ▶ Stage 2b: Diarization", ctx->job_id);
+        
+        Diarizer diarizer;
+        diarizer.diarize(audio_path, ctx->segments);
+        if (ctx->cancelled) return;
+
+        VD_LOG_INFO("[{}] ▶ Stage 2c: Voice Profiling", ctx->job_id);
+        VoiceProfiler profiler;
+        auto speaker_refs = profiler.profile_speakers(ctx->config.input_path, ctx->temp_dir, ctx->segments);
         if (ctx->cancelled) return;
 
         // ─────────────────────────────────────────────────────────────────
@@ -319,7 +353,7 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
         }
 
         // Fan-in: wait for all translation tasks
-        for (auto& f : translate_futures) f.wait();
+        for (auto& f : translate_futures) f.get();
         if (ctx->cancelled) return;
 
         // ─────────────────────────────────────────────────────────────────
@@ -341,20 +375,29 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
         std::vector<std::future<void>> tts_futures;
 
         for (auto& seg : ctx->segments) {
-            // Same fixes as Stage 3: explicit captures, early cancel, monotonic progress
             std::string voice_id = cfg.get_tts_voice_id();
+            std::string ref_path = "";
+            if (ctx->config.tts_backend == "xttsv2_local" && speaker_refs.count(seg.speaker_id)) {
+                ref_path = speaker_refs.at(seg.speaker_id);
+            }
+
             tts_futures.push_back(tts_pool_->submit(
-                [&seg, &tts, &tts_count, retry_count, retry_delay_ms, voice_id, ctx, this]() {
+                [&seg, &tts, &tts_count, retry_count, retry_delay_ms, voice_id, ref_path, ctx, this]() {
                 // FIX #7: Skip this task entirely if already cancelled
                 if (ctx->cancelled) return;
 
                 for (int attempt = 0; attempt < retry_count; ++attempt) {
                     try {
                         // Call TTS API
-                        seg.tts_audio_data = tts->synthesize(
-                            seg.translated_text,
-                            ctx->config.target_language,
-                            voice_id);
+                        if (!ref_path.empty()) {
+                            seg.tts_audio_data = tts->synthesize(seg.translated_text,
+                                                                 ctx->config.target_language,
+                                                                 ref_path);
+                        } else {
+                            seg.tts_audio_data = tts->synthesize(seg.translated_text,
+                                                                 ctx->config.target_language,
+                                                                 voice_id);
+                        }
 
                         // Write audio data to temp file
                         seg.tts_audio_path = ctx->temp_dir
@@ -389,7 +432,7 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
         }
 
         // Fan-in: wait for all TTS tasks
-        for (auto& f : tts_futures) f.wait();
+        for (auto& f : tts_futures) f.get();
         if (ctx->cancelled) return;
 
         // ─────────────────────────────────────────────────────────────────

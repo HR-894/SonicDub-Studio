@@ -31,29 +31,6 @@ extern "C" {
 
 namespace vd {
 
-std::string AudioSyncer::build_atempo_filter(double ratio) {
-    // atempo supports [0.5, 100.0] per filter
-    // Chain multiple for extreme ratios
-    std::ostringstream oss;
-    bool first = true;
-
-    while (ratio > 100.0) {
-        if (!first) oss << ",";
-        oss << "atempo=100.0";
-        ratio /= 100.0;
-        first = false;
-    }
-    while (ratio < 0.5) {
-        if (!first) oss << ",";
-        oss << "atempo=0.5";
-        ratio /= 0.5;
-        first = false;
-    }
-    if (!first) oss << ",";
-    oss << std::format("atempo={:.6f}", ratio);
-    return oss.str();
-}
-
 void AudioSyncer::sync(const std::string& input_wav,
                         const std::string& output_wav,
                         int64_t target_duration_ms) {
@@ -74,19 +51,27 @@ void AudioSyncer::sync(const std::string& input_wav,
         return;
     }
 
-    double ratio = static_cast<double>(input_duration_ms) / target_duration_ms;
-    // Clamp ratio to sane range
-    ratio = std::clamp(ratio, 0.1, 20.0);
-
-    std::string filter_str = build_atempo_filter(ratio);
-    VD_LOG_DEBUG("AudioSyncer: ratio={:.3f}, filter={}", ratio, filter_str);
-
-    // Use QProcess to avoid shell injection via crafted filenames
     QStringList args;
-    args << "-y"
-         << "-i" << QString::fromStdString(input_wav)
-         << "-af" << QString::fromStdString(filter_str)
-         << "-ar" << "16000"
+    args << "-y" << "-i" << QString::fromStdString(input_wav);
+
+    if (input_duration_ms <= target_duration_ms) {
+        // If TTS is shorter or equal, just pad with silence
+        args << "-af" << "apad"
+             << "-t" << QString::number(target_duration_ms / 1000.0, 'f', 3);
+        VD_LOG_DEBUG("AudioSyncer: input_dur={} ms, target_dur={} ms, padding with silence",
+                     input_duration_ms, target_duration_ms);
+    } else {
+        // If TTS is longer, use high-quality rubberband filtering to speed it up
+        double ratio = static_cast<double>(input_duration_ms) / target_duration_ms;
+        // Clamp ratio to sane range
+        ratio = std::clamp(ratio, 1.001, 20.0);
+        std::string filter_str = std::format("rubberband=tempo={:.6f}", ratio);
+        args << "-af" << QString::fromStdString(filter_str);
+        
+        VD_LOG_DEBUG("AudioSyncer: ratio={:.3f}, filter={}", ratio, filter_str);
+    }
+
+    args << "-ar" << "16000"
          << "-ac" << "1"
          << "-loglevel" << "quiet"
          << QString::fromStdString(output_wav);

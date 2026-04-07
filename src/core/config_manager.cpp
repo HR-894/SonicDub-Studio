@@ -17,6 +17,9 @@
 #include <fstream>
 #include <sstream>
 #include <windows.h>
+#include <wincrypt.h>
+#pragma comment(lib, "crypt32.lib")
+#include <iomanip>
 
 namespace vd {
 
@@ -27,6 +30,62 @@ namespace vd {
 ConfigManager& ConfigManager::instance() {
     static ConfigManager inst;
     return inst;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Cryptography Helpers (DPAPI)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+static std::string to_hex(const BYTE* data, DWORD length) {
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (DWORD i = 0; i < length; ++i) {
+        oss << std::setw(2) << static_cast<int>(data[i]);
+    }
+    return oss.str();
+}
+
+static std::vector<BYTE> from_hex(const std::string& hex) {
+    std::vector<BYTE> bytes;
+    for (size_t i = 0; i < hex.length(); i += 2) {
+        std::string byteString = hex.substr(i, 2);
+        BYTE byte = static_cast<BYTE>(strtol(byteString.c_str(), nullptr, 16));
+        bytes.push_back(byte);
+    }
+    return bytes;
+}
+
+std::string ConfigManager::encrypt_string(const std::string& plaintext) const {
+    if (plaintext.empty()) return "";
+    DATA_BLOB data_in;
+    data_in.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(plaintext.data()));
+    data_in.cbData = static_cast<DWORD>(plaintext.size());
+
+    DATA_BLOB data_out;
+    if (CryptProtectData(&data_in, L"VideoDubberKey", nullptr, nullptr, nullptr, 0, &data_out)) {
+        std::string hex = to_hex(data_out.pbData, data_out.cbData);
+        LocalFree(data_out.pbData);
+        return hex;
+    }
+    return ""; // Encryption failed
+}
+
+std::string ConfigManager::decrypt_string(const std::string& ciphertext) const {
+    if (ciphertext.empty()) return "";
+    std::vector<BYTE> raw_bytes = from_hex(ciphertext);
+    if (raw_bytes.empty()) return "";
+
+    DATA_BLOB data_in;
+    data_in.pbData = raw_bytes.data();
+    data_in.cbData = static_cast<DWORD>(raw_bytes.size());
+
+    DATA_BLOB data_out;
+    if (CryptUnprotectData(&data_in, nullptr, nullptr, nullptr, nullptr, 0, &data_out)) {
+        std::string plaintext(reinterpret_cast<char*>(data_out.pbData), data_out.cbData);
+        LocalFree(data_out.pbData);
+        return plaintext;
+    }
+    return ""; // Decryption failed
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -191,9 +250,18 @@ std::string ConfigManager::get_api_key(const std::string& service) const {
     if (config_.contains("api_keys") &&
         config_["api_keys"].is_object() &&
         config_["api_keys"].contains(service)) {
-        return config_["api_keys"][service].get<std::string>();
+        std::string ciphertext = config_["api_keys"][service].get<std::string>();
+        return decrypt_string(ciphertext);
     }
     return "";  // Not configured
+}
+
+void ConfigManager::set_api_key(const std::string& service, const std::string& key) {
+    std::lock_guard lock(mutex_);
+    if (!config_.contains("api_keys") || !config_["api_keys"].is_object()) {
+        config_["api_keys"] = nlohmann::json::object();
+    }
+    config_["api_keys"][service] = encrypt_string(key);
 }
 
 } // namespace vd

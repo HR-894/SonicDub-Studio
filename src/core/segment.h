@@ -113,7 +113,7 @@ struct Segment {
     std::string error_message;       ///< Error description if state == Failed
 
     // ─── Future Extensions ────────────────────────────────────────────────
-    std::optional<std::string> speaker_id;  ///< For future multi-speaker diarization
+    std::string speaker_id;                 ///< Tag from diarization (e.g., "SPEAKER_00")
 
     // ─── Quality Metrics ──────────────────────────────────────────────────
     float transcription_confidence{1.0f};   ///< 0.0–1.0, from whisper.cpp

@@ -65,18 +65,17 @@ void SettingsDialog::save_settings() {
     auto& cfg = ConfigManager::instance();
     auto j = cfg.get_json();
 
-    j["api_keys"]["gemini"]           = gemini_key_->text().toStdString();
-    j["api_keys"]["google_translate"] = google_key_->text().toStdString();
-    j["api_keys"]["google_tts"]       = google_key_->text().toStdString();
-    j["api_keys"]["elevenlabs"]       = eleven_key_->text().toStdString();
-    j["api_keys"]["deepl"]            = deepl_key_->text().toStdString();
+    cfg.set_api_key("gemini", gemini_key_->text().toStdString());
+    cfg.set_api_key("google_translate", google_key_->text().toStdString());
+    cfg.set_api_key("google_tts", google_key_->text().toStdString());
+    cfg.set_api_key("elevenlabs", eleven_key_->text().toStdString());
+    cfg.set_api_key("deepl", deepl_key_->text().toStdString());
 
     j["active_tts_backend"]         = tts_backend_->currentText().toStdString();
     j["active_translation_backend"] = trans_backend_->currentText().toStdString();
     j["audio_mix_mode"]             = mix_mode_->currentText().toStdString();
 
     // Use internal set and save logic for actual config manager
-    cfg.set("api_keys", j["api_keys"]);
     cfg.set("active_tts_backend", j["active_tts_backend"]);
     cfg.set("active_translation_backend", j["active_translation_backend"]);
     cfg.set("audio_mix_mode", j["audio_mix_mode"]);

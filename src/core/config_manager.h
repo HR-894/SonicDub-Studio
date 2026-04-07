@@ -108,6 +108,7 @@ public:
 
     // API Keys
     std::string get_api_key(const std::string& service) const;  ///< e.g. "gemini"
+    void set_api_key(const std::string& service, const std::string& key);
 
     // Edge TTS
     std::string get_libretranslate_url()     const;  ///< e.g. "http://localhost:5000"
@@ -125,6 +126,9 @@ public:
     nlohmann::json get_json() const;
 
 private:
+    std::string encrypt_string(const std::string& plaintext) const;
+    std::string decrypt_string(const std::string& ciphertext) const;
+
     ConfigManager() = default;           // Singleton — use instance()
 
     mutable std::mutex     mutex_;       ///< Guards all config_ access
