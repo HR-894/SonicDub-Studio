@@ -71,7 +71,8 @@ public:
 
     /// Auto-assign a voice to an unknown speaker_id (round-robin, stable per speaker_id).
     /// Call for each unique speaker_id before synthesize() to pre-warm the voice map.
-    std::string resolve_voice(const std::string& speaker_id);
+    struct VoiceConfig; // Defined below
+    VoiceConfig resolve_voice(const std::string& speaker_id);
 
     HttpClient   http_;
     uint16_t     bridge_port_;
@@ -79,8 +80,13 @@ public:
     std::string  output_dir_;
     uint32_t     segment_id_{0};
 
-    /// speaker_id → VibeVoice built-in voice name
-    std::unordered_map<std::string, std::string> speaker_voice_map_;
+    struct VoiceConfig {
+        std::string voice_name;
+        float pitch_shift;
+    };
+
+    /// speaker_id → VibeVoice built-in voice configuration
+    std::unordered_map<std::string, VoiceConfig> speaker_voice_map_;
 
     /// Built-in VibeVoice-Realtime voice pool (EN)
     static constexpr const char* kVoicePool[] = {
@@ -88,8 +94,8 @@ public:
     };
     static constexpr size_t kVoicePoolSize = 4;
 
-    /// Auto-assign a voice to an unknown speaker_id (round-robin)
-    std::string resolve_voice(const std::string& speaker_id);
+    /// Auto-assign a voice (and deterministic pitch shift) to an unknown speaker_id (round-robin)
+    VoiceConfig resolve_voice(const std::string& speaker_id);
 };
 
 } // namespace vd

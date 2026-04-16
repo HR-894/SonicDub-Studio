@@ -12,6 +12,10 @@
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <format>
+#include <filesystem>
+#include <QProcess>
+#include <QStringList>
+#include <QString>
 
 namespace vd {
 
@@ -31,19 +35,26 @@ VibeVoiceTTS::VibeVoiceTTS(uint16_t bridge_port, bool use_gpu)
 // resolve_voice — Map speaker_id to a stable VibeVoice voice name
 // ─────────────────────────────────────────────────────────────────────────────
 
-std::string VibeVoiceTTS::resolve_voice(const std::string& speaker_id) {
+VibeVoiceTTS::VoiceConfig VibeVoiceTTS::resolve_voice(const std::string& speaker_id) {
     auto it = speaker_voice_map_.find(speaker_id);
     if (it != speaker_voice_map_.end()) {
         return it->second;
     }
-    // Auto-assign: hash speaker_id → round-robin index into voice pool
-    // This is stable: same speaker_id always gets same voice even across calls.
-    size_t idx = std::hash<std::string>{}(speaker_id) % kVoicePoolSize;
-    std::string voice = kVoicePool[idx];
-    speaker_voice_map_[speaker_id] = voice;
-    VD_LOG_INFO("VibeVoiceTTS: Auto-assigned speaker '{}' → voice '{}'",
-                speaker_id, voice);
-    return voice;
+    // Auto-assign: hash speaker_id → deterministic voice name and pitch shift
+    // This provides 4 * 5 = 20 mathematically distinct voices from 4 models.
+    size_t hash_val = std::hash<std::string>{}(speaker_id);
+    size_t name_idx = hash_val % kVoicePoolSize;
+    std::string voice_name = kVoicePool[name_idx];
+
+    // Calculate deterministic pitch shift: -0.1, -0.05, 0.0, +0.05, +0.1
+    int pitch_tier = (hash_val / kVoicePoolSize) % 5;
+    float pitch_shift = 1.0f + (pitch_tier - 2) * 0.05f;
+
+    VoiceConfig config = {voice_name, pitch_shift};
+    speaker_voice_map_[speaker_id] = config;
+    VD_LOG_INFO("VibeVoiceTTS: Assigned speaker '{}' → voice '{}' (pitch {}x)",
+                speaker_id, config.voice_name, config.pitch_shift);
+    return config;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,21 +70,21 @@ std::vector<uint8_t> VibeVoiceTTS::synthesize(const std::string& text,
     std::string out_path = output_dir_
         + "/vibevoice_" + std::to_string(segment_id_) + ".wav";
 
-    // Resolve voice name (speaker-consistent)
-    std::string voice = resolve_voice(speaker_id);
+    // Resolve voice config (speaker-consistent)
+    VoiceConfig config = resolve_voice(speaker_id);
 
     // Build request
     std::string url = std::format("http://127.0.0.1:{}/tts_vibevoice", bridge_port_);
 
     nlohmann::json payload = {
         {"text",         text},
-        {"speaker_name", voice},
+        {"speaker_name", config.voice_name},
         {"output_path",  out_path},
         {"use_gpu",      use_gpu_},
     };
 
-    VD_LOG_INFO("VibeVoiceTTS: seg={} speaker='{}' voice='{}' len={}chars",
-                segment_id_, speaker_id, voice, text.size());
+    VD_LOG_INFO("VibeVoiceTTS: seg={} speaker='{}' voice='{}' pitch={:.2f} len={}chars",
+                segment_id_, speaker_id, config.voice_name, config.pitch_shift, text.size());
 
     // HTTP POST
     HttpResponse resp;
@@ -103,6 +114,28 @@ std::vector<uint8_t> VibeVoiceTTS::synthesize(const std::string& text,
     }
 
     std::string result_path = j.value("output_path", out_path);
+
+    // ── Apply Math Pitch Filter if necessary ──────────────────────────────
+    if (std::abs(config.pitch_shift - 1.0f) > 0.01f) {
+        std::string tmp_path = output_dir_ + "/tmp_pitch_" + std::to_string(segment_id_) + ".wav";
+        
+        // asetrate=16000*P,aresample=16000,atempo=1/P
+        // This shifts pitch while precisely preserving original tempo!
+        std::string filter = std::format("asetrate=16000*{0:.2f},aresample=16000,atempo=1/{0:.2f}", config.pitch_shift);
+        
+        QStringList args;
+        args << "-y" << "-i" << QString::fromStdString(result_path)
+             << "-af" << QString::fromStdString(filter)
+             << "-ar" << "16000" << "-ac" << "1" << "-loglevel" << "quiet"
+             << QString::fromStdString(tmp_path);
+             
+        int rc = QProcess::execute("ffmpeg", args);
+        if (rc == 0) {
+            std::filesystem::rename(tmp_path, result_path);
+        } else {
+            VD_LOG_WARN("VibeVoiceTTS: FFmpeg pitch shift failed (code {})", rc);
+        }
+    }
 
     // Read WAV file
     std::ifstream f(result_path, std::ios::binary);

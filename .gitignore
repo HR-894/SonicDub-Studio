@@ -37,3 +37,7 @@ spec.txt
 models/
 config.json
 .env
+
+
+ai_engine/ai_bridge_server
+ai_engine/ai_bridge_server.spec

@@ -69,6 +69,7 @@ class TranscribeVibeVoicePayload(BaseModel):
     hotwords:      list[str] = []
     model_path:    str = "microsoft/VibeVoice-ASR-HF"
     use_gpu:       bool = True
+    chunk_length_s: float = 30.0
 
 
 class VibeVoiceTTSPayload(BaseModel):
@@ -171,7 +172,7 @@ async def clone_tts(payload: TextPayload):
 # ENDPOINT: /transcribe_vibevoice  (Phase 1 — BIGGEST WIN)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _load_vibevoice_asr(model_path: str, use_gpu: bool):
+def _load_vibevoice_asr(model_path: str, use_gpu: bool, chunk_length_s: float):
     """Load VibeVoice-ASR pipeline (cached — only loaded once)."""
     global _vibevoice_asr_pipeline
     with _vibevoice_asr_lock:
@@ -188,8 +189,7 @@ def _load_vibevoice_asr(model_path: str, use_gpu: bool):
                     "automatic-speech-recognition",
                     model=model_path,
                     device=device,
-                    # VibeVoice-ASR processes full audio in one pass
-                    chunk_length_s=0,       # No chunking — single-pass
+                    chunk_length_s=chunk_length_s, # Prevents OOM on large files
                     return_timestamps=True, # Returns word/segment timestamps
                 )
                 print("[AI Bridge] VibeVoice-ASR loaded successfully.", flush=True)
@@ -234,7 +234,7 @@ async def transcribe_vibevoice(payload: TranscribeVibeVoicePayload):
         # Load model (cached after first call)
         asr = await loop.run_in_executor(
             None,
-            lambda: _load_vibevoice_asr(payload.model_path, payload.use_gpu)
+            lambda: _load_vibevoice_asr(payload.model_path, payload.use_gpu, payload.chunk_length_s)
         )
 
         if asr is None:
@@ -492,7 +492,6 @@ async def health():
         "gpu_available":       gpu_available,
         "vibevoice_asr_ready": _vibevoice_asr_pipeline is not None,
         "vibevoice_tts_ready": _vibevoice_tts_model    is not None,
-        "gemini_api_key_set":  bool(os.getenv("GEMINI_API_KEY", "")),
     }
 
 
