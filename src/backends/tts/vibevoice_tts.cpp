@@ -119,14 +119,15 @@ std::vector<uint8_t> VibeVoiceTTS::synthesize(const std::string& text,
     if (std::abs(config.pitch_shift - 1.0f) > 0.01f) {
         std::string tmp_path = output_dir_ + "/tmp_pitch_" + std::to_string(segment_id_) + ".wav";
         
-        // asetrate=16000*P,aresample=16000,atempo=1/P
+        // VibeVoice outputs at 22050 Hz.
+        // asetrate=22050*P,aresample=22050,atempo=1/P
         // This shifts pitch while precisely preserving original tempo!
-        std::string filter = std::format("asetrate=16000*{0:.2f},aresample=16000,atempo=1/{0:.2f}", config.pitch_shift);
+        std::string filter = std::format("asetrate=22050*{0:.2f},aresample=22050,atempo=1/{0:.2f}", config.pitch_shift);
         
         QStringList args;
         args << "-y" << "-i" << QString::fromStdString(result_path)
              << "-af" << QString::fromStdString(filter)
-             << "-ar" << "16000" << "-ac" << "1" << "-loglevel" << "quiet"
+             << "-ar" << "22050" << "-ac" << "1" << "-loglevel" << "quiet"
              << QString::fromStdString(tmp_path);
              
         int rc = QProcess::execute("ffmpeg", args);
