@@ -2,7 +2,7 @@
     "name": "sonicdub-studio",
     "version": "1.0.0",
     "dependencies": [
-        "qt6",
+        "qt",
         "curl",
         "nlohmann-json",
         "spdlog",
