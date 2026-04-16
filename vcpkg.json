@@ -2,13 +2,13 @@
     "name": "sonicdub-studio",
     "version": "1.0.0",
     "dependencies": [
-        "qt6-base",
-        "qt6-widgets",
+        "qt6",
         "curl",
         "nlohmann-json",
         "spdlog",
         "boost-beast",
         "boost-asio",
-        "gtest"
+        "gtest",
+        "ffmpeg"
     ]
 }
