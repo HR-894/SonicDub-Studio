@@ -39,6 +39,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <mutex>
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -63,6 +64,13 @@ public:
     // Backend selection
     std::string get_translation_backend()    const;  ///< e.g. "google", "deepl"
     std::string get_tts_backend()            const;  ///< e.g. "gemini", "edge"
+    std::string get_asr_backend()            const;  ///< "vibevoice" or "whisper"
+
+    // VibeVoice settings
+    std::string get_vibevoice_asr_model()    const;  ///< HF model path for ASR
+    std::string get_vibevoice_tts_model()    const;  ///< HF model path for TTS
+    bool        get_vibevoice_use_gpu()      const;  ///< Use CUDA on bridge
+    std::vector<std::string> get_vibevoice_hotwords() const;  ///< Custom hotwords for ASR
 
     // Whisper settings
     std::string get_whisper_model_path()     const;  ///< Expanded absolute path

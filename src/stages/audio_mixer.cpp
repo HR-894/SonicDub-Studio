@@ -49,7 +49,11 @@ void AudioMixer::mix(const SegmentList& segments, const std::string& output_wav)
         return;
     }
 
-    int64_t total_ms = segments.back().end_ms;
+    int64_t total_ms = 0;
+    for (const auto& seg : segments) {
+        if (seg.end_ms > total_ms) total_ms = seg.end_ms;
+    }
+    
     size_t total_samples = static_cast<size_t>(total_ms * SAMPLE_RATE / 1000);
     std::vector<int16_t> output(total_samples, 0); // silence
 
@@ -61,6 +65,8 @@ void AudioMixer::mix(const SegmentList& segments, const std::string& output_wav)
         if (pcm.empty()) continue;
 
         size_t start_sample = static_cast<size_t>(seg.start_ms * SAMPLE_RATE / 1000);
+        if (start_sample >= total_samples) continue; // Safety bounds check against buffer overflow
+
         size_t copy_count   = std::min(pcm.size(), total_samples - start_sample);
 
         for (size_t i = 0; i < copy_count; ++i) {

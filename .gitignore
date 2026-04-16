@@ -36,3 +36,4 @@ spec.txt
 # Models and specific config
 models/
 config.json
+.env

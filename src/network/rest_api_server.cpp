@@ -40,7 +40,16 @@ struct RestApiServer::Impl {
             res.version(req.version());
             res.set(http::field::server, "VideoDubber/1.0");
             res.set(http::field::content_type, "application/json");
-            res.set(http::field::access_control_allow_origin, "*");
+
+            // Prevent arbitrary websites from calling this daemon (CORS restriction)
+            // Allow only browser extensions to interact with the API
+            auto origin_it = req.find(http::field::origin);
+            if (origin_it != req.end()) {
+                std::string origin(origin_it->value());
+                if (origin.starts_with("chrome-extension://") || origin.starts_with("moz-extension://")) {
+                    res.set(http::field::access_control_allow_origin, origin);
+                }
+            }
             res.set(http::field::access_control_allow_methods, "GET,POST,OPTIONS");
             res.set(http::field::access_control_allow_headers, "Content-Type");
 

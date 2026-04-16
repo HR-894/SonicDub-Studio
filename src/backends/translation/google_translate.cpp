@@ -37,12 +37,16 @@ std::string GoogleTranslate::translate(const std::string& text,
         if (resp.status_code != 200)
             throw NetworkException("Google Translate failed: " + std::to_string(resp.status_code));
 
-        auto j = nlohmann::json::parse(resp.body);
-        std::string result;
-        for (auto& chunk : j[0]) {
-            if (!chunk[0].is_null()) result += chunk[0].get<std::string>();
+        try {
+            auto j = nlohmann::json::parse(resp.body);
+            std::string result;
+            for (auto& chunk : j[0]) {
+                if (!chunk[0].is_null()) result += chunk[0].get<std::string>();
+            }
+            return result;
+        } catch (const nlohmann::json::exception& e) {
+            throw NetworkException(std::string("Google Translate JSON error: ") + e.what() + " Resp: " + resp.body);
         }
-        return result;
     }
 
     // Official Cloud Translation API v2
@@ -60,8 +64,14 @@ std::string GoogleTranslate::translate(const std::string& text,
     if (resp.status_code != 200)
         throw NetworkException("Google Translate API failed: " + resp.body);
 
-    auto j = nlohmann::json::parse(resp.body);
-    return j["data"]["translations"][0]["translatedText"].get<std::string>();
+    try {
+        auto j = nlohmann::json::parse(resp.body);
+        return j.at("data").at("translations").at(0).at("translatedText").get<std::string>();
+    } catch (const nlohmann::json::exception& e) {
+        throw NetworkException(std::string("Google Translate API JSON error: ") + e.what() + " Resp: " + resp.body);
+    } catch (const std::exception& e) {
+        throw NetworkException(std::string("Google Translate API error: ") + e.what());
+    }
 }
 
 } // namespace vd

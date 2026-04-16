@@ -73,6 +73,7 @@
 // ── Pipeline Stage Includes ──────────────────────────────────────────────────
 #include "stages/audio_extractor.h"
 #include "stages/transcriber.h"
+#include "stages/vibevoice_transcriber.h"
 #include "stages/diarizer.h"
 #include "stages/voice_profiler.h"
 #include "stages/audio_syncer.h"
@@ -88,6 +89,7 @@
 #include "backends/tts/elevenlabs_tts.h"
 #include "backends/tts/edge_tts.h"
 #include "backends/tts/xtts_engine.h"
+#include "backends/tts/vibevoice_tts.h"
 
 // ── Standard Library ─────────────────────────────────────────────────────────
 #include "utils/file_utils.h"
@@ -142,17 +144,32 @@ PipelineManager::PipelineManager() {
     // This eliminates the TOCTOU race of probe-then-release-then-bind.
     ai_bridge_process_ = std::make_unique<QProcess>();
 
-    // Pipe Python stderr → our log so crash tracebacks are visible
+    // Pipe Python stderr → our log so crash tracebacks are visible.
+    // Use canReadLine()/readLine() instead of readAllStandardOutput()
+    // to prevent log fragmentation: the OS may flush buffers mid-line,
+    // e.g. "Loading Py" + "Torch weights..." as two separate chunks.
     ai_bridge_process_->setProcessChannelMode(QProcess::MergedChannels);
     QObject::connect(ai_bridge_process_.get(), &QProcess::readyReadStandardOutput,
         [this]() {
-            QByteArray data = ai_bridge_process_->readAllStandardOutput();
-            VD_LOG_INFO("[AI Bridge] {}", data.toStdString());
+            while (ai_bridge_process_->canReadLine()) {
+                QByteArray line = ai_bridge_process_->readLine().trimmed();
+                if (!line.isEmpty()) {
+                    VD_LOG_INFO("[AI Bridge] {}", line.toStdString());
+                }
+            }
         });
+
+    // Create a named mutex that Python can monitor.
+    // When this C++ process dies (even via crash/Task Manager), Windows
+    // auto-releases the mutex. Python detects this and self-terminates.
+    // This is immune to the PID-reuse problem where Windows reassigns
+    // the same PID to a new unrelated process within seconds.
+    std::string mutex_name = "SonicDubBridge_" + std::to_string(QCoreApplication::applicationPid());
+    bridge_mutex_ = CreateMutexA(nullptr, TRUE, mutex_name.c_str());
 
     // Port file: Python writes the port it bound to here
     std::string port_file = cfg.get_temp_dir() + "/bridge_port.txt";
-    // Parent PID: Python watchdog kills itself if we crash
+    // Parent PID still passed for fallback; mutex name is primary watchdog
     auto parent_pid = QString::number(QCoreApplication::applicationPid());
 
     // Prefer PyInstaller bundle; fall back to raw Python for developers
@@ -162,6 +179,7 @@ PipelineManager::PipelineManager() {
         ai_bridge_process_->setArguments({
             "--port", "0",
             "--parent-pid", parent_pid,
+            "--mutex-name", QString::fromStdString(mutex_name),
             "--port-file", QString::fromStdString(port_file)
         });
     } else {
@@ -170,6 +188,7 @@ PipelineManager::PipelineManager() {
             "ai_engine/server.py",
             "--port", "0",
             "--parent-pid", parent_pid,
+            "--mutex-name", QString::fromStdString(mutex_name),
             "--port-file", QString::fromStdString(port_file)
         });
     }
@@ -207,6 +226,12 @@ PipelineManager::~PipelineManager() {
     if (ai_bridge_process_ && ai_bridge_process_->state() == QProcess::Running) {
         ai_bridge_process_->terminate();
         ai_bridge_process_->waitForFinished(3000);
+    }
+    // Release the named mutex — Python watchdog will detect this and exit
+    if (bridge_mutex_) {
+        ReleaseMutex(bridge_mutex_);
+        CloseHandle(bridge_mutex_);
+        bridge_mutex_ = nullptr;
     }
 }
 
@@ -290,11 +315,13 @@ static std::unique_ptr<ITranslator> make_translator(const std::string& backend) 
  * Supported: "google", "gemini", "elevenlabs", "edge"
  */
 static std::unique_ptr<ITTSEngine> make_tts(const std::string& backend, uint16_t bridge_port = 0) {
-    if (backend == "google")     return std::make_unique<GoogleCloudTTS>();
-    if (backend == "gemini")     return std::make_unique<GeminiTTS>();
-    if (backend == "elevenlabs") return std::make_unique<ElevenLabsTTS>();
-    if (backend == "edge")       return std::make_unique<EdgeTTS>();
-    if (backend == "xttsv2_local") return std::make_unique<XTTSBackend>(bridge_port);
+    if (backend == "google")          return std::make_unique<GoogleCloudTTS>();
+    if (backend == "gemini")          return std::make_unique<GeminiTTS>();
+    if (backend == "elevenlabs")      return std::make_unique<ElevenLabsTTS>();
+    if (backend == "edge")            return std::make_unique<EdgeTTS>();
+    if (backend == "xttsv2_local")    return std::make_unique<XTTSBackend>(bridge_port);
+    if (backend == "vibevoice_local") return std::make_unique<VibeVoiceTTS>(bridge_port,
+                                         ConfigManager::instance().get_vibevoice_use_gpu());
     throw ConfigException("Unknown TTS backend: " + backend);
 }
 
@@ -321,30 +348,52 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
         if (ctx->cancelled) return;
 
         // ─────────────────────────────────────────────────────────────────
-        // STAGE 2: Transcription  [15%]
-        // Input:  WAV file
-        // Output: SegmentList with timestamps + original_text
-        // Engine: whisper.cpp (GGML) — runs on CPU or CUDA GPU
+        // STAGE 2: Transcription + Diarization  [15–25%]
+        //
+        // STRATEGY: Try VibeVoice-ASR first (60-min single-pass, gives
+        // Who+When+What in one call). If unavailable/failed, fall back to
+        // Whisper + PyAnnote separately (legacy path).
         // ─────────────────────────────────────────────────────────────────
         emit_progress(ctx->job_id, "transcription", 15);
         VD_LOG_INFO("[{}] ▶ Stage 2: Transcription", ctx->job_id);
 
-        Transcriber transcriber;
-        ctx->segments = transcriber.transcribe(audio_path, ctx->config.source_language);
-        VD_LOG_INFO("[{}]   Got {} segments", ctx->job_id, ctx->segments.size());
-        if (ctx->cancelled) return;
+        bool used_vibevoice_asr = false;
 
-        // ─────────────────────────────────────────────────────────────────
-        // STAGE 2.5: Diarization & Voice Profiling [20%]
-        // Input:  16kHz WAV + SegmentList
-        // Output: SegmentList with speaker_id, and speaker_refs Map
-        // ─────────────────────────────────────────────────────────────────
-        emit_progress(ctx->job_id, "diarization", 20);
-        VD_LOG_INFO("[{}] ▶ Stage 2b: Diarization", ctx->job_id);
-        
-        Diarizer diarizer(bridge_port_);
-        diarizer.diarize(audio_path, ctx->segments);
+        // ── Try VibeVoice-ASR (preferred) ────────────────────────────────
+        if (cfg.get_asr_backend() == "vibevoice" && bridge_port_ > 0) {
+            VD_LOG_INFO("[{}]   Attempting VibeVoice-ASR...", ctx->job_id);
+            VibeVoiceTranscriber vv_transcriber(bridge_port_);
+            auto hotwords = cfg.get_vibevoice_hotwords();
+            ctx->segments = vv_transcriber.transcribe(
+                audio_path,
+                ctx->config.source_language,
+                hotwords
+            );
+            used_vibevoice_asr = vv_transcriber.last_call_succeeded();
+            if (used_vibevoice_asr) {
+                VD_LOG_INFO("[{}]   VibeVoice-ASR: {} segments (ASR+diarization in 1 pass)",
+                            ctx->job_id, ctx->segments.size());
+            } else {
+                VD_LOG_WARN("[{}]   VibeVoice-ASR unavailable → falling back to Whisper",
+                            ctx->job_id);
+            }
+        }
+
+        // ── Whisper fallback ─────────────────────────────────────────────
+        if (!used_vibevoice_asr) {
+            Transcriber transcriber;
+            ctx->segments = transcriber.transcribe(audio_path, ctx->config.source_language);
+            VD_LOG_INFO("[{}]   Whisper: {} segments", ctx->job_id, ctx->segments.size());
+
+            // Diarization as separate step (only needed when not using VibeVoice-ASR)
+            emit_progress(ctx->job_id, "diarization", 20);
+            VD_LOG_INFO("[{}] ▶ Stage 2b: Diarization (fallback)", ctx->job_id);
+            Diarizer diarizer(bridge_port_);
+            diarizer.diarize(audio_path, ctx->segments);
+        }
+
         if (ctx->cancelled) return;
+        VD_LOG_INFO("[{}]   Got {} segments", ctx->job_id, ctx->segments.size());
 
         VD_LOG_INFO("[{}] ▶ Stage 2c: Voice Profiling", ctx->job_id);
         VoiceProfiler profiler;
@@ -427,9 +476,17 @@ void PipelineManager::run_pipeline(std::shared_ptr<JobContext> ctx) {
         VD_LOG_INFO("[{}] ▶ Stage 4: TTS ({})", ctx->job_id, ctx->config.tts_backend);
 
         auto tts            = make_tts(ctx->config.tts_backend, bridge_port_);
-        // Tell XTTS backend where to write output so files land in temp_dir
+        // Per-backend setup
         if (auto* xtts = dynamic_cast<XTTSBackend*>(tts.get())) {
             xtts->set_output_dir(ctx->temp_dir);
+        }
+        if (auto* vvtts = dynamic_cast<VibeVoiceTTS*>(tts.get())) {
+            vvtts->set_output_dir(ctx->temp_dir);
+            // Pre-register speaker → voice mapping so all segments of the
+            // same speaker consistently use the same voice (round-robin assignment).
+            for (const auto& seg : ctx->segments) {
+                vvtts->resolve_voice(seg.speaker_id);  // Warms up the map
+            }
         }
         int  retry_count    = cfg.get_tts_retry_count();
         int  retry_delay_ms = cfg.get_tts_retry_delay_ms();

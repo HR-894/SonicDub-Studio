@@ -3,20 +3,27 @@
  * ║  settings_dialog.h — API Key & Backend Configuration Dialog               ║
  * ╚══════════════════════════════════════════════════════════════════════════════╝
  *
- * DIALOG LAYOUT:
- *   ┌─ Settings ──────────────────────────────────┐
- *   │                                              │
- *   │  Gemini API Key:       [••••••••••••••••]    │
- *   │  Google Cloud Key:     [••••••••••••••••]    │
- *   │  ElevenLabs Key:       [••••••••••••••••]    │
- *   │  DeepL Key:            [••••••••••••••••]    │
- *   │                                              │
- *   │  TTS Backend:          [gemini        ▼]     │
- *   │  Translation Backend:  [google        ▼]     │
- *   │  Audio Mix Mode:       [overlay       ▼]     │
- *   │                                              │
- *   │            [ Save ]     [ Cancel ]           │
- *   └──────────────────────────────────────────────┘
+ * DIALOG LAYOUT (updated with VibeVoice):
+ *   ┌─ Settings ──────────────────────────────────────────┐
+ *   │  ═══ API Keys ═══════════════════════════════════   │
+ *   │  Gemini API Key:       [••••••••••••••••]           │
+ *   │  Google Cloud Key:     [••••••••••••••••]           │
+ *   │  ElevenLabs Key:       [••••••••••••••••]           │
+ *   │  DeepL Key:            [••••••••••••••••]           │
+ *   │                                                     │
+ *   │  ═══ AI Backends ════════════════════════════════   │
+ *   │  ASR Backend:          [VibeVoice-ASR   ▼]         │
+ *   │  TTS Backend:          [gemini          ▼]         │
+ *   │  Translation Backend:  [google          ▼]         │
+ *   │  Audio Mix Mode:       [overlay         ▼]         │
+ *   │                                                     │
+ *   │  ═══ VibeVoice Settings ═════════════════════════   │
+ *   │  Use GPU:              [✓]                          │
+ *   │  Custom Hotwords:      [Raj, Simba, OpenAI, ...]   │
+ *   │  (comma-separated terms for better accuracy)        │
+ *   │                                                     │
+ *   │             [ Save ]     [ Cancel ]                 │
+ *   └─────────────────────────────────────────────────────┘
  *
  * BEHAVIOR:
  *   - On open: loads current values from ConfigManager
@@ -30,6 +37,8 @@
 
 class QLineEdit;
 class QComboBox;
+class QCheckBox;
+class QGroupBox;
 
 namespace vd {
 
@@ -50,9 +59,14 @@ private:
     QLineEdit* deepl_key_{nullptr};
 
     // ─── Backend Selection ────────────────────────────────────────────────
+    QComboBox* asr_backend_{nullptr};
     QComboBox* tts_backend_{nullptr};
     QComboBox* trans_backend_{nullptr};
     QComboBox* mix_mode_{nullptr};
+
+    // ─── VibeVoice Settings ──────────────────────────────────────────────
+    QCheckBox* vibevoice_gpu_{nullptr};
+    QLineEdit* hotwords_field_{nullptr};
 };
 
 } // namespace vd

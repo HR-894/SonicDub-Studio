@@ -28,8 +28,14 @@ std::string LibreTranslate::translate(const std::string& text,
     if (resp.status_code != 200)
         throw NetworkException("LibreTranslate failed: " + resp.body);
 
-    auto j = nlohmann::json::parse(resp.body);
-    return j["translatedText"].get<std::string>();
+    try {
+        auto j = nlohmann::json::parse(resp.body);
+        return j.at("translatedText").get<std::string>();
+    } catch (const nlohmann::json::exception& e) {
+        throw NetworkException(std::string("LibreTranslate API JSON error: ") + e.what() + " Resp: " + resp.body);
+    } catch (const std::exception& e) {
+        throw NetworkException(std::string("LibreTranslate API error: ") + e.what());
+    }
 }
 
 } // namespace vd

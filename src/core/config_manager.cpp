@@ -172,6 +172,23 @@ nlohmann::json ConfigManager::get_json() const {
 // -- Backend selection --
 std::string ConfigManager::get_translation_backend() const { return CFG_GET("active_translation_backend", std::string("google")); }
 std::string ConfigManager::get_tts_backend()         const { return CFG_GET("active_tts_backend",         std::string("gemini")); }
+std::string ConfigManager::get_asr_backend()         const { return CFG_GET("active_asr_backend",         std::string("vibevoice")); }
+
+// -- VibeVoice settings --
+std::string ConfigManager::get_vibevoice_asr_model() const { return CFG_GET("vibevoice_asr_model", std::string("microsoft/VibeVoice-ASR-HF")); }
+std::string ConfigManager::get_vibevoice_tts_model() const { return CFG_GET("vibevoice_tts_model", std::string("microsoft/VibeVoice-Realtime-0.5B")); }
+bool        ConfigManager::get_vibevoice_use_gpu()   const { return CFG_GET("vibevoice_use_gpu",   true); }
+
+std::vector<std::string> ConfigManager::get_vibevoice_hotwords() const {
+    std::lock_guard lock(mutex_);
+    std::vector<std::string> result;
+    if (config_.contains("vibevoice_hotwords") && config_["vibevoice_hotwords"].is_array()) {
+        for (const auto& w : config_["vibevoice_hotwords"]) {
+            if (w.is_string()) result.push_back(w.get<std::string>());
+        }
+    }
+    return result;
+}
 
 // -- Whisper settings --
 std::string ConfigManager::get_whisper_model()       const { return CFG_GET("whisper_model",    std::string("medium")); }

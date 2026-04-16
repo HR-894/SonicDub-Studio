@@ -31,8 +31,14 @@ std::string DeepL::translate(const std::string& text,
     if (resp.status_code != 200)
         throw NetworkException("DeepL failed: " + resp.body);
 
-    auto j = nlohmann::json::parse(resp.body);
-    return j["translations"][0]["text"].get<std::string>();
+    try {
+        auto j = nlohmann::json::parse(resp.body);
+        return j.at("translations").at(0).at("text").get<std::string>();
+    } catch (const nlohmann::json::exception& e) {
+        throw NetworkException(std::string("DeepL API JSON error: ") + e.what() + " Resp: " + resp.body);
+    } catch (const std::exception& e) {
+        throw NetworkException(std::string("DeepL API error: ") + e.what());
+    }
 }
 
 } // namespace vd

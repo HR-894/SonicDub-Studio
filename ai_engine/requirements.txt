@@ -1,13 +1,29 @@
-fastapi==0.109.2
-uvicorn==0.27.1
-pydantic==2.6.1
-ffmpeg-python==0.2.0
-python-multipart==0.0.9
+# SonicDubStudio AI Bridge Dependencies
+# ─────────────────────────────────────
 
-# For Diarization (PyAnnote/WhisperX)
-pyannote.audio==3.1.1
-torchaudio==2.2.0
-torch==2.2.0
+# Core API server
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+websockets>=12.0
 
-# For Zero-Shot Voice Cloning (Coqui XTTSv2)
-TTS==0.22.0
+# VibeVoice-ASR (Microsoft open-source ASR — 60-min single-pass)
+transformers>=4.40.0
+torch>=2.1.0
+torchaudio>=2.1.0
+soundfile>=0.12.0
+
+# VibeVoice-Realtime-0.5B TTS (local streaming TTS)
+# Installed from VibeVoice repo: pip install -e .[streamingtts]
+# HuggingFace model: microsoft/VibeVoice-Realtime-0.5B
+
+# Speaker Diarization (fallback when VibeVoice-ASR not used)
+# pyannote.audio>=3.1.0  # Optional — needs HF token
+
+# Voice Cloning (XTTS v2 — local)
+# TTS>=0.22.0   # Optional — heavy dependency
+
+# Utilities
+numpy>=1.24.0
+scipy>=1.11.0
+python-dotenv>=1.0.0

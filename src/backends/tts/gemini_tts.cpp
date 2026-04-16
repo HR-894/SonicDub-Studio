@@ -69,9 +69,15 @@ std::vector<uint8_t> GeminiTTS::synthesize(const std::string& text,
     if (resp.status_code != 200)
         throw TTSException("Gemini TTS failed: " + resp.body);
 
-    auto j = nlohmann::json::parse(resp.body);
-    std::string audio_b64 = j["candidates"][0]["content"]["parts"][0]["inlineData"]["data"];
-    return base64_decode(audio_b64);
+    try {
+        auto j = nlohmann::json::parse(resp.body);
+        std::string audio_b64 = j.at("candidates").at(0).at("content").at("parts").at(0).at("inlineData").at("data");
+        return base64_decode(audio_b64);
+    } catch (const nlohmann::json::exception& e) {
+        throw TTSException(std::string("Gemini API JSON error: ") + e.what() + " Response: " + resp.body);
+    } catch (const std::exception& e) {
+        throw TTSException(std::string("Gemini API error: ") + e.what());
+    }
 }
 
 } // namespace vd

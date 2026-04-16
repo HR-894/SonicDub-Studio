@@ -161,6 +161,7 @@ private:
     std::filesystem::path state_dir_;          ///< For future state persistence
     std::unique_ptr<QProcess> ai_bridge_process_; ///< Manages server.py lifecycle
     uint16_t bridge_port_{0};                  ///< Dynamically assigned AI bridge port
+    void* bridge_mutex_{nullptr};              ///< Named mutex HANDLE for zombie prevention
 };
 
 } // namespace vd

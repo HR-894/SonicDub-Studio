@@ -30,8 +30,13 @@ static size_t header_callback(char* buf, size_t size, size_t nitems,
     auto colon = line.find(':');
     if (colon != std::string::npos) {
         std::string key   = line.substr(0, colon);
-        std::string value = line.substr(colon + 2);
-        value.erase(value.find_last_not_of(" \r\n") + 1);
+        std::string value = (colon + 1 < line.length()) ? line.substr(colon + 1) : "";
+        if (!value.empty()) {
+            value.erase(0, value.find_first_not_of(" \t"));
+            auto end = value.find_last_not_of(" \r\n\t");
+            if (end != std::string::npos) value.erase(end + 1);
+            else value.clear();
+        }
         (*headers)[key] = value;
     }
     return size * nitems;
